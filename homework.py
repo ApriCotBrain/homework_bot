@@ -134,7 +134,6 @@ def main():
             if prev_send['error'] != message:
                 send_message(bot, message)
                 prev_send['error'] = message
-            send_message(bot, message)
 
         finally:
             time.sleep(RETRY_TIME)
