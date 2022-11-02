@@ -1,8 +1,10 @@
 import logging
 import os
+import sys
 import time
 from http import HTTPStatus
 
+import exceptions
 import requests
 import telegram
 from dotenv import load_dotenv
@@ -15,7 +17,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler("debug.log"),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 
@@ -38,10 +40,13 @@ HOMEWORK_STATUSES = {
 def send_message(bot, message):
     """Отправляет сообщение в чат."""
     try:
+        logging.info('Начало отправки сообщения в TELEGRAM')
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logging.info('Сообщение отправлено успешно.')
     except Exception:
-        logging.error('Не удалось отправить сообщение!')
+        raise exceptions.MyException(
+            'Ошибка отправки сообщения в TELEGRAM')
+    else:
+        logging.info('Сообщение отправлено успешно.')
 
 
 def get_api_answer(current_timestamp):
@@ -53,11 +58,12 @@ def get_api_answer(current_timestamp):
             ENDPOINT,
             headers=HEADERS,
             params=params)
-    except Exception as error:
-        logging.error(f'Эндпоинт недоступен!: {error}')
-    if homework_status.status_code != HTTPStatus.OK:
-        status_code = homework_status.status_code
-        raise Exception(f"Ошибка {status_code}")
+        if homework_status.status_code != HTTPStatus.OK:
+            raise exceptions.RegularCasesException(
+                'Ошибка статуса!')
+    except Exception:
+        raise exceptions.RegularCasesException(
+            'Эндпоинт недоступен!')
     return homework_status.json()
 
 
@@ -66,7 +72,7 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError('Ответ API не является словарем.')
     homeworks = response.get('homeworks')
-    if 'homeworks' not in response:
+    if homeworks is None:
         raise KeyError('Отсутствует ключ homeworks.')
     if 'current_date' not in response:
         raise KeyError('Отсутствует ключ current_date.')
@@ -85,7 +91,10 @@ def parse_status(homework):
     if homework_status is None:
         message = 'Нет новых статусов'
         raise KeyError(message)
-    verdict = HOMEWORK_STATUSES[homework_status]
+    if homework_status not in HOMEWORK_STATUSES:
+        message = 'Незнакомый статус'
+        raise KeyError(message)
+    verdict = HOMEWORK_STATUSES.get(homework_status)
 
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -97,26 +106,37 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens() == 'False':
-        logging.error('Не доступна переменная окружения!')
-        raise Exception
+    if not check_tokens():
+        logging.critical('Не доступна переменная окружения!')
+        sys.exit("Отсутствуют необходимые переменные окружения")
     logging.info('Все переменные окружения доступны.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
+    prev_send = {'error': None}
     while True:
         try:
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
-            if homeworks:
-                homework_status = parse_status(homeworks[0])
-                send_message(bot, homework_status)
+            if len(homeworks) == 0:
+                logging.debug('Нет новых статусов.')
+            for homework in homeworks:
+                message = parse_status(homework)
+                if prev_send.get(homework['homework_name']) != message:
+                    send_message(bot, message)
+                    prev_send[homework['homework_name']] = message
             current_timestamp = response.get('current_date')
-            time.sleep(RETRY_TIME)
 
-        except Exception as error:
-            message = f'Сбой в работе программы: {error}'
+        except exceptions.RegularCasesException:
+            logging.error('Что-то пошло не так!')
+        except exceptions.MyException as error:
             logging.error('Сбой в работе программы!')
+            message = f'Сбой в работе программы: {error}'
+            if prev_send['error'] != message:
+                send_message(bot, message)
+                prev_send['error'] = message
             send_message(bot, message)
+
+        finally:
             time.sleep(RETRY_TIME)
 
 
