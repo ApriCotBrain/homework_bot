@@ -10,9 +10,9 @@ class TimeException(BasedException):
     """Сервер не прислал новую отсечку времени."""
 
 
-class TelegramException(Exception):
-    """Требуют пересылки в TELEGRAM."""
-
-
-class EndpointError(TelegramException):
+class EndpointError(BasedException):
     """Недоступен Эндпоинт."""
+
+
+class TelegramException(Exception):
+    """Ошибка отправки в TELEGRAM."""

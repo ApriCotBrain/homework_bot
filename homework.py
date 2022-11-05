@@ -43,7 +43,7 @@ def send_message(bot, message) -> None:
         logging.info('Начало отправки сообщения в TELEGRAM')
         bot.send_message(TELEGRAM_CHAT_ID, message)
     except telegram.error.TelegramError:
-        raise exceptions.BasedException(
+        raise exceptions.TelegramException(
             'Ошибка отправки сообщения в TELEGRAM')
     else:
         logging.info('Сообщение отправлено успешно.')
@@ -54,23 +54,23 @@ def get_api_answer(current_timestamp) -> dict:
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     try:
-        homework_status = requests.get(
+        response = requests.get(
             ENDPOINT,
             headers=HEADERS,
             params=params)
-        if homework_status.status_code != HTTPStatus.OK:
-            raise exceptions.TelegramException(
-                f'Ошибка статуса {homework_status.status_code}!',
-                f'{homework_status.reason}',
-                f'{homework_status.text}',
+        if response.status_code != HTTPStatus.OK:
+            raise exceptions.BasedException(
+                f'Ошибка статуса {response.status_code}!',
+                f'{response.reason}',
+                f'{response.text}',
                 f'{ENDPOINT}',
                 f'{HEADERS}',
                 f'{params}!'
             )
     except Exception:
-        raise exceptions.TelegramException(
+        raise exceptions.BasedException(
             'Эндпоинт недоступен!')
-    return homework_status.json()
+    return response.json()
 
 
 def check_response(response) -> list:
@@ -118,8 +118,8 @@ def main() -> None:
     logging.info('Все переменные окружения доступны.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-    prev_send = {}
-    prev_send_error = {}
+    message = ''
+    error_message = ''
     while True:
         try:
             response = get_api_answer(current_timestamp)
@@ -128,21 +128,22 @@ def main() -> None:
                 logging.debug('Нет новых статусов.')
             else:
                 homework = homeworks[0]
-                message = parse_status(homework)
-                if prev_send.get(homework['homework_name']) != message:
-                    send_message(bot, message)
-                current_timestamp = response.get('current_date')
+                new_message = parse_status(homework)
+                if new_message != message:
+                    send_message(bot, new_message)
+                    message = new_message
+            current_timestamp = response.get('current_date')
 
         except exceptions.BasedException as error:
-            logging.error(Exception, exc_info=error)
+            logging.error(error, exc_info=error)
         except exceptions.TelegramException as error:
-            logging.error(Exception, exc_info=error)
+            logging.error(error, exc_info=error)
         except Exception as error:
             logging.error(Exception, exc_info=error)
-            message = f'Сбой в работе программы: {error}'
-            if prev_send_error['error'] != message:
-                send_message(bot, message)
-
+            new_error_message = f'Сбой в работе программы: {error}'
+            if new_error_message != error_message:
+                send_message(bot, new_error_message)
+                error_message = new_error_message
         finally:
             time.sleep(RETRY_TIME)
 
