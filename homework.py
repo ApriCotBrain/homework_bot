@@ -134,6 +134,8 @@ def main() -> None:
                     message = new_message
             current_timestamp = response.get('current_date')
 
+        except exceptions.TelegramException as error:
+            logging.error(error, exc_info=error)
         except Exception as error:
             logging.error(Exception, exc_info=error)
             new_error_message = f'Сбой в работе программы: {error}'
